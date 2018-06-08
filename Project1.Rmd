@@ -1,0 +1,27 @@
+---
+title: "Project 1: Global Baseline Predictors and RMSE"
+author: "Ilya Kats"
+date: "June 12, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+
+### Data Set
+
+```{r}
+# Data import
+data <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                        "master/Project1_opera.csv"))
+colnames(data) <- gsub("\\.", " ", colnames(data))
+colnames(data)[1] <- ""
+
+knitr::kable(data)
+```
+
+
+https://bachtrack.com
