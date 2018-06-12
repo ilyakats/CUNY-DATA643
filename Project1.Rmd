@@ -6,22 +6,144 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
 ```
+
+![](Project1.jpg)
 
 ### Introduction
 
+The recommender system I would like to implement would recommend opera productions. This is mostly out of my interest in attending operas, but I believe this area also creates a few interesting challenges. 
+
+Since there is no widely-used system for tracking user ratings, like _IMDb_ or _Netflix_ for movies and TV, I believe it makes sense to concentrate on professional critics' reviews. With some baseline provided by a user, it may be possible to line up a user with some professional critic's opinion for future recommendations. 
+
+Some challenges of an opera recommender system are as follows:
+
+- Professional opera reviews are rarely graded on any scale (like stars or thumbs up). As such, language analysis may be necessary for transforming the data. 
+- There are many components to an opera production. Users may be interested in only some, but not others. In addition to expected categories like composer, libretto author, specific singers, other categories may include director, conductor, genre, design. It is possible - and likely - for two productions of the same opera to receive vastly different reviews. I believe opera is fairly unique among arts in that many works are produced many times by multiple companies In fact, often multiple productions are shown in the same season. 
+- Generally, opera audience skews older than other entertainment industries. There may be some resistance to technology (comparing to movie aggregators, for example).
+- I believe opera audience can be split into two categories. The first are very occassional viewers who generally go to see a specific singer or production with some buzz. The second are die-hard fans who go often, but who also have strong preferences and opinions. It is possible that neither camp is looking for any machine recommendations. 
+
+```{r}
+# Required libraries
+library(caTools)  # Train/test Split
+library(dplyr)
+library(tidyr)
+```
+
 ### Data Set
+
+For this project, I wanted to create a small data set based on real reviews. Using reviews from Bachtrack (https://bachtrack.com), which assigns stars to their reviews (on a 1 to 5 scale), I recorded some ratings for the Metropolitan Opera productions. I quickly realized that few productions have multiple reviews. So for this project, I have simply filled in some random ratings for a few productions and critics. Full data set is below.
 
 ```{r}
 # Data import
 data <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
                         "master/Project1_opera.csv"))
 colnames(data) <- gsub("\\.", " ", colnames(data))
-colnames(data)[1] <- ""
-
-knitr::kable(data)
 ```
 
+```{r echo = FALSE}
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
 
-https://bachtrack.com
+### Trainig/Testing Split
+
+Most manipulations and calculations were done using `tidyverse`. Data frame was converted to long form and split into training and testing sets based on 0.75 split ration.
+
+```{r}
+# Convert to long form
+split_data <- data %>% gather(key = Opera, value = Rating, -Critic)
+
+# Randomly split all ratings for training and testing sets
+set.seed(50)
+split <- sample.split(split_data$Rating, SplitRatio = 0.75)
+
+# Prepare training set
+train_data <- split_data
+train_data$Rating[!split] <- NA
+
+# Prepare testing set
+test_data <- split_data
+test_data$Rating[split] <- NA
+```
+
+#### Training Set
+
+```{r echo = FALSE}
+knitr::kable(train_data %>% spread(key = Opera, value = Rating), format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Testing Set
+
+```{r echo = FALSE}
+knitr::kable(test_data %>% spread(key = Opera, value = Rating), format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Raw Average
+
+```{r}
+# Get raw average
+raw_avg <- sum(train_data$Rating, na.rm = TRUE) / 
+  length(which(!is.na(train_data$Rating)))
+
+# Calculate RMSE for raw average
+rmse_raw_train <- sqrt(sum((train_data$Rating[!is.na(train_data$Rating)] - raw_avg)^2) /
+                         length(which(!is.na(train_data$Rating))))
+rmse_raw_test <- sqrt(sum((test_data$Rating[!is.na(test_data$Rating)] - raw_avg)^2) /
+                        length(which(!is.na(test_data$Rating))))
+```
+
+### Baseline Predictors
+
+```{r}
+# Get critic and opera biases
+critic_bias <- train_data %>% filter(!is.na(Rating)) %>% 
+  group_by(Critic) %>%
+  summarise(sum = sum(Rating), count = n()) %>% 
+  mutate(bias = sum/count-raw_avg) %>%
+  select(Critic, CriticBias = bias)
+opera_bias <- train_data %>% filter(!is.na(Rating)) %>% 
+  group_by(Opera) %>%
+  summarise(sum = sum(Rating), count = n()) %>% 
+  mutate(bias = sum/count-raw_avg) %>%
+  select(Opera, OperaBias = bias)
+train_data <- train_data %>% left_join(critic_bias, by = "Critic") %>%
+  left_join(opera_bias, by = "Opera") %>%
+  mutate(RawAvg = raw_avg) %>%
+  mutate(Baseline = RawAvg + CriticBias + OperaBias)
+test_data <- test_data %>% left_join(critic_bias, by = "Critic") %>%
+  left_join(opera_bias, by = "Opera") %>%
+  mutate(RawAvg = raw_avg) %>%
+  mutate(Baseline = RawAvg + CriticBias + OperaBias)
+
+# Calculate RMSE for baseline predictors
+rmse_base_train <- sqrt(sum((train_data$Rating[!is.na(train_data$Rating)] - 
+                               train_data$Baseline[!is.na(train_data$Rating)])^2) /
+                          length(which(!is.na(train_data$Rating))))
+rmse_base_test <- sqrt(sum((test_data$Rating[!is.na(test_data$Rating)] - 
+                              test_data$Baseline[!is.na(test_data$Rating)])^2) /
+                         length(which(!is.na(test_data$Rating))))
+```
+
+### RMSE and Summary
+
+This table shows RMSE values for training and testing sets and for raw average and baseline predictors.
+
+```{r echo = FALSE}
+rmse <- as.data.frame(c(rmse_raw_train, rmse_base_train, rmse_raw_test, rmse_base_test))
+colnames(rmse) <- "RMSE"
+rownames(rmse) <- c("Training: Raw Average",
+                    "Training: Baseline Predictor",
+                    "Testing: Raw Average",
+                    "Testing: Baseline Predictor")
+knitr::kable(rmse, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), 
+                            full_width = FALSE)
+```
+
+Interestingly, RMSE improved using baseline predictors for the training set, but it worsened for the testing set. This is due to a small data set with very limited information. The testing set includes only 9 ratings. Data set was created almost randomly assigning ratings, so calculating specific biases, such as harsh critic or generally favorable performance, does not generate improvement since this information is not in the data set. I was able to adjust the data set and testing/training split to generate values that show consistent improvement of baseline predictors over raw averages; however, for illustration purposes I am reporting the initial results.
