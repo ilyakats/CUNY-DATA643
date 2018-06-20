@@ -1,0 +1,218 @@
+---
+title: "Project 2: Content-Based and Collaborative Filtering"
+author: "Ilya Kats"
+date: "June 19, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+### Introduction
+
+This project is based on the `recommenderlab` package as described in the _Building a Recommendation System with R_ book by Gorakala and Usuelli. It presents basic item-item and user-user collaborative filtering.
+
+```{r}
+# Required libraries
+library(recommenderlab)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+### Data Set
+
+The data set is courtesy of __MovieLens__ project and it was downloaded from https://grouplens.org/datasets/movielens/. 
+
+```{r}
+# Data import
+ratings <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                           "master/Project%202/ml-latest-small/ratings.csv"))
+titles <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                          "master/Project%202/ml-latest-small/movies.csv"))
+
+# Convert to matrix
+movieMatrix <- ratings %>% 
+  select(-timestamp) %>% 
+  spread(movieId, rating)
+row.names(movieMatrix) <- movieMatrix[,1]
+movieMatrix <- movieMatrix[-c(1)]
+movieMatrix <- as(as.matrix(movieMatrix), "realRatingMatrix")
+
+movieMatrix
+```
+
+Our movie matrix contains 671 users and 9,066 items/movies. 
+
+#### Exploration and Preparation
+
+Let us take a quick look at the distribution of all ratings to make sure that there are no surprises. It seems that users favor whole number ratings. 4 is the most common rating which seems to be common for 5-star rating systems.
+
+```{r}
+vRatings <- as.vector(movieMatrix@data)
+vRatings <- vRatings[vRatings != 0]
+ggplot() + aes(vRatings) + 
+  geom_histogram(binwidth = 0.5) +
+  xlab("Rating") + ylab("No of Ratings")
+```
+
+It does not make sense to use sparse data to build our model, so we will select only users and items with the most information. 
+
+```{r}
+( movies <- movieMatrix[rowCounts(movieMatrix) > 50, 
+                        colCounts(movieMatrix) > 50] )
+```
+
+We are left with 421 users and 444 items. This is about two thirds of the original users and under 5% of the original items. However, this covers almost 38% of original ratings. It seems that there were a lot of items/movies with just a few ratings.
+
+Any ratings matrix, especially movie ratings matrix, is bound to have some bias. Some users just give higher ratings than others. Consider average rating per user. We can see from the distribution plot below that it varies a lot.
+
+```{r}
+avg <- rowMeans(movies)
+ggplot() + aes(avg) + 
+  geom_histogram(binwidth = 0.1) +
+  xlab("Average Rating") + ylab("No of Ratings")
+```
+
+`recommenderlab` normalizes the data when building a model. Let us normalize the ratings and confirm that all averages are 0 now to see what kind of effect it has.
+
+```{r}
+moviesNorm <- normalize(movies)
+avg <- round(rowMeans(moviesNorm),5)
+table(avg)
+```
+
+```{r}
+minItems <- quantile(rowCounts(movies), 0.95)
+minUsers <- quantile(colCounts(movies), 0.95)
+
+image(movies[rowCounts(movies) > minItems, 
+                 colCounts(movies) > minUsers], 
+      main = "Heatmap of the Top Users and Movies (Non-Normalized")
+
+image(moviesNorm[rowCounts(moviesNorm) > minItems, 
+                 colCounts(moviesNorm) > minUsers], 
+      main = "Heatmap of the Top Users and Movies (Normalized)")
+```
+
+Reviewing rows in two heatmaps above, we can see that after normalization, the average rating is more uniform. Visually it does appear that bias is reduced.
+
+### Item-Item Collaborative Filtering
+
+Let us split our set into training set (80%) and testing set (20%). 
+
+```{r}
+set.seed(88)
+which_train <- sample(x = c(TRUE, FALSE), size = nrow(movies),
+                      replace = TRUE, prob = c(0.8, 0.2))
+
+movieTrain <- movies[which_train, ]
+movieTest <- movies[!which_train, ]
+```
+
+#### Training the Model
+
+Now let us create a model using the training set.
+
+```{r}
+( model <- Recommender(movieTrain, method = "IBCF") )
+```
+
+Interestingly, what can be the most time consuming and critical step - training the model - can be done in one line of code with `recommenderlab` package.
+
+We can examine the similarity matrix and find top ten movies that are similar to other movies. 
+
+```{r}
+similarityMatrix <- getModel(model)$sim
+which_max <- order(colSums(similarityMatrix > 0), decreasing = TRUE)[1:10]
+topMovies <- as.data.frame(as.integer(rownames(similarityMatrix)[which_max]))
+colnames(topMovies) <- c("movieId")
+data <- topMovies %>% inner_join(titles, by = "movieId") %>% select(Movie = "title")
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Making Recommendations Using Test Set
+
+```{r}
+( pred <- predict(model, newdata = movieTest, n = 6) )
+```
+
+Now we can extract recommendations. Consider the first user. Clearly a Star Wars fan and not a Trekkie.
+
+```{r}
+# Movie ratings of the first user
+user1 <- as.data.frame(movieTest@data[1,movieTest@data[1,]>0])
+colnames(user1) <- c("Rating")
+user1[c("movieId")] <- as.integer(rownames(user1))
+data <- titles %>% 
+  inner_join(user1, by = "movieId") %>% 
+  select(Movie = "title", Rating) %>%
+  arrange(desc(Rating))
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+His/her recommendations are as follows. Of course, this evaluation is highly subjective, but I would only question the recommendation of _Casper_. 
+
+```{r}
+# Recommendations for the first user
+recommended <- pred@itemLabels[pred@items[[1]]]
+recommended <- as.data.frame(as.integer(recommended))
+colnames(recommended) <- c("movieId")
+data <- recommended %>% inner_join(titles, by = "movieId") %>% select(Movie = "title")
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### User-User Collaborative Filtering
+
+The setup and code for the user based collaborative filtering is very similar to the item-based collaborative filtering above.
+
+#### Training the Model
+
+Now let us create a user-based model using the training set.
+
+```{r}
+( model <- Recommender(movieTrain, method = "UBCF") )
+```
+
+#### Making Recommendations Using Test Set
+
+```{r}
+( pred <- predict(model, newdata = movieTest, n = 6) )
+```
+
+Again let us consider the first user and look at his/her recommendations. I would consider these as solid recommendations. The first user gravitated towards more critically acclaimed dramas and these recommendations are among the best movies produced.
+
+```{r}
+# Recommendations for the first user
+recommended <- pred@itemLabels[pred@items[[1]]]
+recommended <- as.data.frame(as.integer(recommended))
+colnames(recommended) <- c("movieId")
+data <- recommended %>% inner_join(titles, by = "movieId") %>% select(Movie = "title")
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Normalization Test
+
+Consider if we build the model without normalizing the data. Only one movie is featured on both lists of recommendations for the first user - _Eternal Sunshine of the Spotless Mind_. I would argue that without normalization recommendations include more usual suspects (movies very highly rated by majority of users) and therefore are more generic. This is, of course, highly subjective and needs to be researched and tested using more objective means than this writer's opinion.
+
+```{r}
+model <- Recommender(movieTrain, method = "UBCF", parameter = list(normalize = NULL))
+pred <- predict(model, newdata = movieTest, n = 6)
+recommended <- pred@itemLabels[pred@items[[1]]]
+recommended <- as.data.frame(as.integer(recommended))
+colnames(recommended) <- c("movieId")
+data <- recommended %>% inner_join(titles, by = "movieId") %>% select(Movie = "title")
+knitr::kable(data, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Summary
+
+This project presented the most basic approach to building a recommender system in R using the `recommenderlab` package. It describes some basic steps; however, it is important to note that this is a learning exercise. More development and testing would be needed for a usable recommender system. It would be particularly interesting to see the effect of additional features and to see the performance of the recommender when little information is known about user's preference.
