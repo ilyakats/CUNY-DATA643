@@ -1,0 +1,80 @@
+---
+title: "Project 3: Matrix Factorization methods"
+author: "Ilya Kats"
+date: "June 26, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+### Introduction
+
+This project is based on the work done in Project 2 (https://rpubs.com/ilyakats/data643proj2). It adds SVD to explore recommender systems further. 
+
+```{r}
+# Required libraries
+library(recommenderlab)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+### Data Set
+
+The data set is courtesy of __MovieLens__ project and it was downloaded from https://grouplens.org/datasets/movielens/.
+
+```{r}
+# Data import
+ratings <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                           "master/Project%202/ml-latest-small/ratings.csv"))
+titles <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                          "master/Project%202/ml-latest-small/movies.csv"))
+
+# Convert to matrix
+movieMatrix <- ratings %>% 
+  select(-timestamp) %>% 
+  spread(movieId, rating)
+row.names(movieMatrix) <- movieMatrix[,1]
+movieMatrix <- as.matrix(movieMatrix[-c(1)])
+movieRealMatrix <- as(movieMatrix, "realRatingMatrix")
+```
+
+Our movie matrix contains 671 users and 9,066 items/movies. 
+
+### SVD: Singular Value Decomposition
+
+Before performing SVD, we have one preparatory step. Since SVD works on real matrices only, we will assume that non-existing rating is the same as rating of 0 and replace all `NA` with 0.
+
+We perform SVD using R's base function `svd`. 
+
+```{r}
+# Replace NAs with 0
+movieMatrix[is.na(movieMatrix)] <- 0
+
+# Perform SVD
+movieSVD <- svd(movieMatrix)
+```
+
+This process generates 671 concepts. Clearly to be usable we need to reduce number of dimensions/concepts by setting some singular values in the diagonal matrix $\Sigma$ to 0. Per Leskovec (_Mining of Massive Datasets_, 2014, p. 424), we will retain enough singular values to make up 90% of the energy of $\Sigma$.
+
+```{r}
+n <- length(movieSVD$d)
+total_energy <- sum(movieSVD$d^2)
+for (i in (n-1):1) {
+  energy <- sum(movieSVD$d[1:i]^2)
+  if (energy/total_energy<0.9) {
+    n_dims <- i+1
+    break
+  }
+}
+```
+
+This process leaves us with 274 dimensions/concepts. This is still a high number, but much more manageable than 671 (almost 60% reduction).
+
+### Summary
+
+TBD
