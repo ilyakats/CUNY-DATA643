@@ -1,0 +1,218 @@
+---
+title: "Project 4: Accuracy and Beyond"
+author: "Ilya Kats"
+date: "July 3, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE)
+```
+
+### Introduction
+
+This project is based on the work done in Project 2 (https://rpubs.com/ilyakats/data643proj2). It adds SVD to explore recommender systems further. Code is based on the `recommenderlab` package.
+
+```{r}
+# Required libraries
+library(recommenderlab)  # Matrix/recommender functions
+library(dplyr)           # Data manipulation
+library(tidyr)           # Data manipulation
+library(ggplot2)         # Plotting
+library(ggrepel)         # Plotting labels without overlapping
+library(tictoc)          # Timing
+```
+
+### Data Set
+
+https://www.kaggle.com/skillsmuggler/amazon-ratings
+
+2,023,070 ovservations 4 variables
+
+```{r}
+# Data import
+ratings <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                           "master/Project%202/ml-latest-small/ratings.csv"))
+titles <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
+                          "master/Project%202/ml-latest-small/movies.csv"))
+
+# Convert to matrix
+movieMatrix <- ratings %>% 
+  select(-timestamp) %>% 
+  spread(movieId, rating)
+row.names(movieMatrix) <- movieMatrix[,1]
+movieMatrix <- as.matrix(movieMatrix[-c(1)])
+movieRealMatrix <- as(movieMatrix, "realRatingMatrix")
+```
+
+Our movie matrix contains 671 users and 9,066 items/movies. 
+
+In order to test any models, we need to split our data into training and testing sets.
+
+```{r}
+# Train/test split
+set.seed(88)
+eval <- evaluationScheme(movieRealMatrix, method = "split", 
+                         train = 0.8, given = 20, goodRating = 3)
+train <- getData(eval, "train")
+known <- getData(eval, "known")
+unknown <- getData(eval, "unknown")
+```
+
+### User-Based Collaborative Model
+
+So we can compare SVD model against other models, we will build a user-based collaborative filtering model.
+
+```{r}
+# UBCF model
+tic("UBCF Model - Training")
+modelUBCF <- Recommender(train, method = "UBCF")
+toc(log = TRUE, quiet = TRUE)
+
+tic("UBCF Model - Predicting")
+predUBCF <- predict(modelUBCF, newdata = known, type = "ratings")
+toc(log = TRUE, quiet = TRUE)
+
+( accUBCF <- calcPredictionAccuracy(predUBCF, unknown) )
+```
+
+### Singular Value Decomposition (SVD) Model
+
+We are using similar code to generate the SVD model. After testing several parameters, we are generating a model with 50 categories/concepts. This covers enough information and lowers RMSE, but at the same time provides reasonable processing time.
+
+```{r}
+# SVD model
+tic("SVD Model - Training")
+modelSVD <- Recommender(train, method = "SVD", parameter = list(k = 50))
+toc(log = TRUE, quiet = TRUE)
+
+tic("SVD Model - Predicting")
+predSVD <- predict(modelSVD, newdata = known, type = "ratings")
+toc(log = TRUE, quiet = TRUE)
+
+( accSVD <- calcPredictionAccuracy(predSVD, unknown) )
+```
+
+As we can see RMSE is very similar to the UBCF model - just under 1. On the surface these models appear to be similar. 
+
+#### Run Time
+
+One major difference is run time. This is especially important for scaling the project. UBCF takes less time to build a model, but takes more resources making predictions while SVD model is the opposite - resource intensive to build a model, but quick to make predictions.
+
+```{r}
+# Display log
+log <- as.data.frame(unlist(tic.log(format = TRUE)))
+colnames(log) <- c("Run Time")
+knitr::kable(log, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Predictions Example
+
+Let us pick a user to see how predictions would work. We can pick a user from the predictions matrix we already created. For example, user 44. The following list shows all movies user 44 rated - low on romantic, serious or light-hearted movies, high on lowbrow humor and action movies.
+
+```{r}
+mov_rated <- as.data.frame(movieRealMatrix@data[c("44"), ]) 
+colnames(mov_rated) <- c("Rating")
+mov_rated$movieId <- as.integer(rownames(mov_rated))
+mov_rated <- mov_rated %>% filter(Rating != 0) %>% 
+  inner_join (titles, by="movieId") %>%
+  arrange(Rating) %>%
+  select(Movie = "title", Rating)
+knitr::kable(mov_rated, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+Now we can take top 6 movies as suggested by the SVD model. I think these suggestions - _Demolition Man_, _Armaggedon_, _Jurassic Park_ - make sense for user 44. The only questionable suggestion in my opinion is _Contact_.
+
+```{r}
+mov_recommend <- as.data.frame(predSVD@data[c("44"), ]) 
+colnames(mov_recommend) <- c("Rating")
+mov_recommend$movieId <- as.integer(rownames(mov_recommend))
+mov_recommend <- mov_recommend %>% arrange(desc(Rating)) %>% head(6) %>% 
+  inner_join (titles, by="movieId") %>%
+  select(Movie = "title")
+knitr::kable(mov_recommend, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+#### Roadblock
+
+If we look at the diaganol matrix $\Sigma$ from the SVD model, we see that the first concept/dimension seemingly accounts for 99% of the energy. This provided some problems in further evaluation of the SVD method.
+
+```{r}
+modelSVD@model$svd$d
+```
+
+### Manual Singular Value Decomposition
+
+In order to do more testing on the SVD method, I have decided to perform decomposition manually without any additional `recommender` functionality. I am using base R `svd` function. 
+
+First the ratings matrix is normalized. `NA` values are replaced with 0 and there are negative and positive ratings. Now we can decompose original matrix.
+
+```{r}
+# Normalize matrix
+movieMatrix <- as.matrix(normalize(movieRealMatrix)@data)
+
+# Perform SVD
+movieSVD <- svd(movieMatrix)
+rownames(movieSVD$u) <- rownames(movieMatrix)
+rownames(movieSVD$v) <- colnames(movieMatrix)
+```
+
+This process generates 671 concepts. Clearly to be usable we need to reduce number of dimensions/concepts by setting some singular values in the diagonal matrix $\Sigma$ to 0. Per Leskovec (_Mining of Massive Datasets_, 2014, p. 424), we will retain enough singular values to make up 90% of the energy of $\Sigma$.
+
+```{r}
+# Reduce dimentions
+n <- length(movieSVD$d)
+total_energy <- sum(movieSVD$d^2)
+for (i in (n-1):1) {
+  energy <- sum(movieSVD$d[1:i]^2)
+  if (energy/total_energy<0.9) {
+    n_dims <- i+1
+    break
+  }
+}
+```
+
+This process leaves us with 283 dimensions/concepts. This is still a high number, but much more manageable than 671 (almost 60% reduction).
+
+```{r}
+trim_mov_D <- movieSVD$d[1:n_dims]
+trim_mov_U <- movieSVD$u[, 1:n_dims]
+trim_mov_V <- movieSVD$v[, 1:n_dims]
+```
+
+Consider two first concepts with singular values 73.6 and 51.9. Let us pick 5 movies with highest and lowest values in each concept and plot them.
+
+```{r}
+mov_count <- 5
+
+movies <- as.data.frame(trim_mov_V) %>% select(V1, V2)
+movies$movieId <- as.integer(rownames(movies))
+
+mov_sample <- movies %>% arrange(V1) %>% head(mov_count)
+mov_sample <- rbind(mov_sample, movies %>% arrange(desc(V1)) %>% head(mov_count))
+mov_sample <- rbind(mov_sample, movies %>% arrange(V2) %>% head(mov_count))
+mov_sample <- rbind(mov_sample, movies %>% arrange(desc(V2)) %>% head(mov_count))
+mov_sample <- mov_sample %>% inner_join(titles, by = "movieId") %>% 
+  select(Movie = "title", Concept1 = "V1", Concept2 = "V2")
+mov_sample$Concept1 <- round(mov_sample$Concept1, 4)
+mov_sample$Concept2 <- round(mov_sample$Concept2, 4)
+
+knitr::kable(mov_sample, format = "html") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+
+ggplot(mov_sample, aes(Concept1, Concept2, label=Movie)) + geom_point() +
+  geom_text_repel(aes(label=Movie), hjust=-0.1, vjust=-0.1, size = 3) +
+  scale_x_continuous(limits = c(-0.2, 0.2)) +
+  scale_y_continuous(limits = c(-0.1, 0.1)) 
+```
+
+This plot nicely demonstrates one of the biggest disadvantages of the SVD method - inability to connect characteristics/concepts to real-world categories. We can certainly agree that it is meaningful that all original Star Wars movies are close together or that Pulp Fiction and Ace Ventura are on opposites sides, but there is no clear way to categorize these movies.
+
+### Summary
+
+This project explored some SVD features. It showed that SVD is faster than collaborative filtering in making predictions. SVD provides good recommendations, but at the same time SVD is difficult to interpret.
