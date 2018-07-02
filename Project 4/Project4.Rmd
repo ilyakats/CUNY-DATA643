@@ -21,8 +21,7 @@ library(recommenderlab)  # Matrix/recommender functions
 library(dplyr)           # Data manipulation
 library(tidyr)           # Data manipulation
 library(ggplot2)         # Plotting
-library(ggrepel)         # Plotting labels without overlapping
-library(tictoc)          # Timing
+library(tictoc)          # Operation timing
 ```
 
 ### Data Set
@@ -30,32 +29,27 @@ library(tictoc)          # Timing
 https://www.kaggle.com/skillsmuggler/amazon-ratings
 
 2,023,070 ovservations 4 variables
+1210271 users  249274 items
 
 ```{r}
 # Data import
 ratings <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
-                           "master/Project%202/ml-latest-small/ratings.csv"))
-titles <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
-                          "master/Project%202/ml-latest-small/movies.csv"))
+                           "master/Project%204/ratings_Short.csv"))
 
-# Convert to matrix
-movieMatrix <- ratings %>% 
-  select(-timestamp) %>% 
-  spread(movieId, rating)
-row.names(movieMatrix) <- movieMatrix[,1]
-movieMatrix <- as.matrix(movieMatrix[-c(1)])
-movieRealMatrix <- as(movieMatrix, "realRatingMatrix")
+ratingsMatrix <- sparseMatrix(as.integer(ratings$UserId), as.integer(ratings$ProductId), x = ratings$Rating)
+colnames(ratingsMatrix) <- levels(ratings$ProductId)
+rownames(ratingsMatrix) <- levels(ratings$UserId)
+amazon <- as(ratingsMatrix, "realRatingMatrix")
 ```
 
-Our movie matrix contains 671 users and 9,066 items/movies. 
+The final ratings matrix for this project contains 10,227 users and 11,209 items/prooducts. There are 111,871 ratings.
 
 In order to test any models, we need to split our data into training and testing sets.
 
 ```{r}
 # Train/test split
 set.seed(88)
-eval <- evaluationScheme(movieRealMatrix, method = "split", 
-                         train = 0.8, given = 20, goodRating = 3)
+eval <- evaluationScheme(amazon, method = "split", train = 0.8, given = -1, goodRating = 3)
 train <- getData(eval, "train")
 known <- getData(eval, "known")
 unknown <- getData(eval, "unknown")

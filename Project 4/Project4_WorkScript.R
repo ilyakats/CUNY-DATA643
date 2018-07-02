@@ -22,6 +22,15 @@ hist(colCounts(amazon))
 table(colCounts(amazon))
 
 ( amazonShort <- amazon[rowCounts(amazon) > 10, colCounts(amazon) > 30] )
+table(rowCounts(amazonShort))
+table(colCounts(amazonShort))
+( amazonShort <- amazonShort[ , colCounts(amazonShort) != 0] )
 amazonShort@data[1:100, 1:10]
 hist(rowCounts(amazonShort))
 
+df <- as.data.frame(as.matrix(amazonShort@data))
+df$UserId <- rownames(df)
+df <- df %>% gather(key = ProductId, value = Rating, -UserId) %>% filter(Rating != 0)
+# df[df == 0] <- NA
+# df[1:10, 1:10]
+write.csv(df, "c:/temp/CUNY/data643/ratings_Short.csv", row.names = FALSE)
