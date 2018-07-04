@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 ### Introduction
 
-This project is based on the work done in Project 2 (https://rpubs.com/ilyakats/data643proj2). It adds SVD to explore recommender systems further. Code is based on the `recommenderlab` package.
+This project covers comparing accuracy of models and introducing diversity to a recommender system. It is based on the `recommenderlab` R package.
 
 ```{r}
 # Required libraries
@@ -26,10 +26,7 @@ library(tictoc)          # Operation timing
 
 ### Data Set
 
-https://www.kaggle.com/skillsmuggler/amazon-ratings
-
-2,023,070 ovservations 4 variables
-1210271 users  249274 items
+The data is a product ratings set for beauty products sold on Amazon.com. It was downloaded from Kaggle.com (https://www.kaggle.com/skillsmuggler/amazon-ratings). Original set contains 2,023,070 observations and 4 variables - User ID, Product ID, Rating (from 1 to 5), and Time Stamp. It covers 1,210,271 users and 249,274 products. In order to make the set more manageable it has been reduced to a smaller subset. The final set used in this project includes products with over 30 reviews in the original set and users that rated over 10 products. The final ratings matrix contains 3,562 users and 9,647 prooducts. There are 68,565 ratings. R code used to examine and reduce the original set is available at GitHub (https://github.com/ilyakats/CUNY-DATA643/tree/master/Project%204).
 
 ```{r}
 # Data import
@@ -42,171 +39,176 @@ rownames(ratingsMatrix) <- levels(ratings$UserId)
 amazon <- as(ratingsMatrix, "realRatingMatrix")
 ```
 
-The final ratings matrix for this project contains 10,227 users and 11,209 items/prooducts. There are 111,871 ratings.
+Each user has rated at least 11 items and at most 187 (median is 15 and average is 19.25). Each item has been rated by at least 1 user and at most by 177 users (median is 3 and average is 7.1).
 
-In order to test any models, we need to split our data into training and testing sets.
+In order to test any models, we need to split our data into training and testing sets (based on a common 80-20 split).
 
 ```{r}
 # Train/test split
 set.seed(88)
-eval <- evaluationScheme(amazon, method = "split", train = 0.8, given = -1, goodRating = 3)
+eval <- evaluationScheme(amazon, method = "split", train = 0.8, given = 5, goodRating = 3)
 train <- getData(eval, "train")
 known <- getData(eval, "known")
 unknown <- getData(eval, "unknown")
+
+# Set up data frame for timing
+timing <- data.frame(Model=factor(), Training=double(), Predicting=double())
 ```
 
-### User-Based Collaborative Model
+### Recommender Models 
 
-So we can compare SVD model against other models, we will build a user-based collaborative filtering model.
+We are going to build and compare several models. 
+
+#### Building Models
+
+The code below builds several models - User Based Collaborative Filtering (UBCF) model, Random model, and SVD model. It also generates several parameters we will use to compare the models.
 
 ```{r}
-# UBCF model
-tic("UBCF Model - Training")
-modelUBCF <- Recommender(train, method = "UBCF")
-toc(log = TRUE, quiet = TRUE)
+# ---------------- USER BASED COLLABORATIVE FILTERING ----------------
+model_method <- "UBCF"
 
-tic("UBCF Model - Predicting")
+# Training
+tic()
+modelUBCF <- Recommender(train, method = model_method)
+t <- toc(quiet = TRUE)
+train_time <- round(t$toc - t$tic, 2)
+
+# Predicting
+tic()
 predUBCF <- predict(modelUBCF, newdata = known, type = "ratings")
-toc(log = TRUE, quiet = TRUE)
+t <- toc(quiet = TRUE)
+predict_time <- round(t$toc - t$tic, 2)
 
-( accUBCF <- calcPredictionAccuracy(predUBCF, unknown) )
-```
+timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
+                                   Training = as.double(train_time), 
+                                   Predicting = as.double(predict_time))) 
 
-### Singular Value Decomposition (SVD) Model
+# Accuracy
+accUBCF <- calcPredictionAccuracy(predUBCF, unknown)
+#resultsUBCF <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
 
-We are using similar code to generate the SVD model. After testing several parameters, we are generating a model with 50 categories/concepts. This covers enough information and lowers RMSE, but at the same time provides reasonable processing time.
+# ---------------- RANDOM ----------------
+model_method <- "RANDOM"
 
-```{r}
-# SVD model
-tic("SVD Model - Training")
-modelSVD <- Recommender(train, method = "SVD", parameter = list(k = 50))
-toc(log = TRUE, quiet = TRUE)
+# Training
+tic()
+modelRandom <- Recommender(train, method = model_method)
+t <- toc(quiet = TRUE)
+train_time <- round(t$toc - t$tic, 2)
 
-tic("SVD Model - Predicting")
+# Predicting
+tic()
+predRandom <- predict(modelRandom, newdata = known, type = "ratings")
+t <- toc(quiet = TRUE)
+predict_time <- round(t$toc - t$tic, 2)
+
+timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
+                                   Training = as.double(train_time), 
+                                   Predicting = as.double(predict_time))) 
+
+# Accuracy
+accRandom <- calcPredictionAccuracy(predRandom, unknown)
+#resultsRandom <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
+
+# ---------------- SVD ----------------
+model_method <- "SVD"
+
+# Training
+tic()
+modelSVD <- Recommender(train, method = model_method, parameter = list(k = 50))
+t <- toc(quiet = TRUE)
+train_time <- round(t$toc - t$tic, 2)
+
+# Predicting
+tic()
 predSVD <- predict(modelSVD, newdata = known, type = "ratings")
-toc(log = TRUE, quiet = TRUE)
+t <- toc(quiet = TRUE)
+predict_time <- round(t$toc - t$tic, 2)
 
-( accSVD <- calcPredictionAccuracy(predSVD, unknown) )
+timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
+                                   Training = as.double(train_time), 
+                                   Predicting = as.double(predict_time))) 
+
+# Accuracy
+accSVD <- calcPredictionAccuracy(predSVD, unknown)
+#resultsSVD <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
 ```
 
-As we can see RMSE is very similar to the UBCF model - just under 1. On the surface these models appear to be similar. 
-
-#### Run Time
-
-One major difference is run time. This is especially important for scaling the project. UBCF takes less time to build a model, but takes more resources making predictions while SVD model is the opposite - resource intensive to build a model, but quick to make predictions.
+#### Comparing Models
 
 ```{r}
-# Display log
-log <- as.data.frame(unlist(tic.log(format = TRUE)))
-colnames(log) <- c("Run Time")
-knitr::kable(log, format = "html") %>%
+accuracy <- rbind(accUBCF, accRandom)
+accuracy <- rbind(accuracy, accSVD)
+rownames(accuracy) <- c("UBCF", "Random", "SVD")
+knitr::kable(accuracy, format = "html") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-#### Predictions Example
+Reviewing the accuracy numbers for 3 models we see that UBCF and SVD models are very close together. UBCF model is only slightly better. The Random model is noticeably worse. It is not suprising that random recommendations are not as accurate as recommendations based on prior ratings. 
 
-Let us pick a user to see how predictions would work. We can pick a user from the predictions matrix we already created. For example, user 44. The following list shows all movies user 44 rated - low on romantic, serious or light-hearted movies, high on lowbrow humor and action movies.
+Next we can review ROC curve and the Precision-Recall plot for all 3 models. Again UBCF performs better than SVD and considerably better than the Random model.  
+
+```{r message = FALSE, results = "hide"}
+models <- list(
+  "UBCF" = list(name = "UBCF", param = NULL),
+  "Random" = list(name = "RANDOM", param = NULL),
+  "SVD" = list(name = "SVD", param = list(k = 50))
+  )
+evalResults <- evaluate(x = eval, method = models, n = c(1, 5, 10, 30, 60))
+```
 
 ```{r}
-mov_rated <- as.data.frame(movieRealMatrix@data[c("44"), ]) 
-colnames(mov_rated) <- c("Rating")
-mov_rated$movieId <- as.integer(rownames(mov_rated))
-mov_rated <- mov_rated %>% filter(Rating != 0) %>% 
-  inner_join (titles, by="movieId") %>%
-  arrange(Rating) %>%
-  select(Movie = "title", Rating)
-knitr::kable(mov_rated, format = "html") %>%
+# ROC Curve
+plot(evalResults, 
+     annotate = TRUE, legend = "topleft", main = "ROC Curve")
+
+# Precision-Recall Plot
+plot(evalResults, "prec/rec", 
+     annotate = TRUE, legend = "topright", main = "Precision-Recall")
+```
+
+Finally, it is important to consider training and prediction time. From the table below we can see that the UBCF model can be created fairly quickly, but predicting results takes considerable time. The Random model is pretty efficient all around. The SVD model takes longer to build than to predict, but altogether it is quicker than the UBCF model. This may be a factor in some projects.
+
+```{r}
+rownames(timing) <- timing$Model
+knitr::kable(timing[, 2:3], format = "html") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-Now we can take top 6 movies as suggested by the SVD model. I think these suggestions - _Demolition Man_, _Armaggedon_, _Jurassic Park_ - make sense for user 44. The only questionable suggestion in my opinion is _Contact_.
+### Implementing Business/User Experience Goal
+
+It may not always be desireable to recommend products that are likely to be most highly rated by a user. Recommending somewhat unexpected products may improve user experience, expand user preferences, provide additional knowledge about a user. To account for that we build a hybrid model that combines the UBCF model and the Random model. In order to make sure that most of recommendations are still likely to be highly rated we only allow very minor influence of the Random model (0.99 vs. 0.01 weight between UBCF and Random models).
 
 ```{r}
-mov_recommend <- as.data.frame(predSVD@data[c("44"), ]) 
-colnames(mov_recommend) <- c("Rating")
-mov_recommend$movieId <- as.integer(rownames(mov_recommend))
-mov_recommend <- mov_recommend %>% arrange(desc(Rating)) %>% head(6) %>% 
-  inner_join (titles, by="movieId") %>%
-  select(Movie = "title")
-knitr::kable(mov_recommend, format = "html") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+modelHybrid <- HybridRecommender(
+    modelUBCF, 
+    modelRandom, 
+    weights = c(0.99, 0.01))
+predHybrid <- predict(modelHybrid, newdata = known, type = "ratings")
+( accHybrid <- calcPredictionAccuracy(predHybrid, unknown) )
 ```
 
-#### Roadblock
+The accuracy has gone down. It is not as bad as with purely random model, but clearly not as good as UBCF or SVD models. However, the goal here is to influence user experience rather than make the most accurate model, so we need to employ different metrics.
 
-If we look at the diaganol matrix $\Sigma$ from the SVD model, we see that the first concept/dimension seemingly accounts for 99% of the energy. This provided some problems in further evaluation of the SVD method.
+Let us look at top 10 recommendations for the first user in the test set. 
 
 ```{r}
-modelSVD@model$svd$d
+pUBCF <- predict(modelUBCF, newdata = known[1], type = "topNList")
+pHybrid <- predict(modelHybrid, newdata = known[1], type = "topNList")
 ```
-
-### Manual Singular Value Decomposition
-
-In order to do more testing on the SVD method, I have decided to perform decomposition manually without any additional `recommender` functionality. I am using base R `svd` function. 
-
-First the ratings matrix is normalized. `NA` values are replaced with 0 and there are negative and positive ratings. Now we can decompose original matrix.
 
 ```{r}
-# Normalize matrix
-movieMatrix <- as.matrix(normalize(movieRealMatrix)@data)
-
-# Perform SVD
-movieSVD <- svd(movieMatrix)
-rownames(movieSVD$u) <- rownames(movieMatrix)
-rownames(movieSVD$v) <- colnames(movieMatrix)
+pUBCF@items
+pHybrid@items
 ```
 
-This process generates 671 concepts. Clearly to be usable we need to reduce number of dimensions/concepts by setting some singular values in the diagonal matrix $\Sigma$ to 0. Per Leskovec (_Mining of Massive Datasets_, 2014, p. 424), we will retain enough singular values to make up 90% of the energy of $\Sigma$.
+The Hybrid model includes most of the items recommended by the UBCF model, but there are new items and the order is different.
 
-```{r}
-# Reduce dimentions
-n <- length(movieSVD$d)
-total_energy <- sum(movieSVD$d^2)
-for (i in (n-1):1) {
-  energy <- sum(movieSVD$d[1:i]^2)
-  if (energy/total_energy<0.9) {
-    n_dims <- i+1
-    break
-  }
-}
-```
+### Conclusion
 
-This process leaves us with 283 dimensions/concepts. This is still a high number, but much more manageable than 671 (almost 60% reduction).
+The project covered comparing several recommender models. Similar process can be employed to compare additional models or to adjust model parameters to find the most optimal model. Additionally, a random element was introduced in order to diversify recommendations. When recommending a random element it is difficult to predict how a user will react to it and whether the recommendation has a positive impact on business goals or user experience. In order to evaluate the impact you would need access to the online environment. 
 
-```{r}
-trim_mov_D <- movieSVD$d[1:n_dims]
-trim_mov_U <- movieSVD$u[, 1:n_dims]
-trim_mov_V <- movieSVD$v[, 1:n_dims]
-```
+One of the approaches in measuring success of diversification may be A/B testing. Users are randomly divided into two groups and each group is offered a slightly different experience. For instance, one group may get recommendations only from the UBCF model while the other group will get recommendations from the hybrid model. User experience is measure in some way. The least instrusive way is to monitor user interaction. In this example of Amazon products, a click on a recommendation suggested by the random element of the model will point to the fact that the hybrid model provides valuable recommendations. Of course, it is possible to track other metrics - products bought, time spent on product page, amount spent, etc. The basic idea is to see if the hybrid model provides meaningful improvement to the basic model. 
 
-Consider two first concepts with singular values 73.6 and 51.9. Let us pick 5 movies with highest and lowest values in each concept and plot them.
+It is important to have objective measures when building and optimizing data science models. Evaluation of a model that returns highly relevant, but redundant recommendations should reflect that the model may score poorly in user experience. One of the approaches to measure diversity is described in _Novelty and Diversity in Information Retrieval Evaluation_ (Clarke et al. 2008; https://plg.uwaterloo.ca/~gvcormac/novelty.pdf). This or similar measurement should be incorporated in projects of this type.
 
-```{r}
-mov_count <- 5
-
-movies <- as.data.frame(trim_mov_V) %>% select(V1, V2)
-movies$movieId <- as.integer(rownames(movies))
-
-mov_sample <- movies %>% arrange(V1) %>% head(mov_count)
-mov_sample <- rbind(mov_sample, movies %>% arrange(desc(V1)) %>% head(mov_count))
-mov_sample <- rbind(mov_sample, movies %>% arrange(V2) %>% head(mov_count))
-mov_sample <- rbind(mov_sample, movies %>% arrange(desc(V2)) %>% head(mov_count))
-mov_sample <- mov_sample %>% inner_join(titles, by = "movieId") %>% 
-  select(Movie = "title", Concept1 = "V1", Concept2 = "V2")
-mov_sample$Concept1 <- round(mov_sample$Concept1, 4)
-mov_sample$Concept2 <- round(mov_sample$Concept2, 4)
-
-knitr::kable(mov_sample, format = "html") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
-
-ggplot(mov_sample, aes(Concept1, Concept2, label=Movie)) + geom_point() +
-  geom_text_repel(aes(label=Movie), hjust=-0.1, vjust=-0.1, size = 3) +
-  scale_x_continuous(limits = c(-0.2, 0.2)) +
-  scale_y_continuous(limits = c(-0.1, 0.1)) 
-```
-
-This plot nicely demonstrates one of the biggest disadvantages of the SVD method - inability to connect characteristics/concepts to real-world categories. We can certainly agree that it is meaningful that all original Star Wars movies are close together or that Pulp Fiction and Ace Ventura are on opposites sides, but there is no clear way to categorize these movies.
-
-### Summary
-
-This project explored some SVD features. It showed that SVD is faster than collaborative filtering in making predictions. SVD provides good recommendations, but at the same time SVD is difficult to interpret.
