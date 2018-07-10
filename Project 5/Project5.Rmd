@@ -1,7 +1,7 @@
 ---
-title: "Project 4: Accuracy and Beyond"
+title: "Project 5: Implementing a Recommender System on Spark"
 author: "Ilya Kats"
-date: "July 3, 2018"
+date: "July 10, 2018"
 output: html_document
 ---
 
@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE,
 
 ### Introduction
 
-This project covers comparing accuracy of models and introducing diversity to a recommender system. It is based on the `recommenderlab` R package.
+The project covers basic Spark set up in the R environment. It relies on `sparklyr` package and runs all Spark code in the local mode. This is meant to demonstrate basic functionality in preparation for the final project. As such this project can only evaluate some features and benefits of Spark. 
 
 ```{r}
 # Required libraries
@@ -22,28 +22,33 @@ library(dplyr)           # Data manipulation
 library(tidyr)           # Data manipulation
 library(ggplot2)         # Plotting
 library(tictoc)          # Operation timing
+library(sparklyr)        # Spark processing
+
+# Set up data frame for timing
+timing <- data.frame(Method=character(), Training=double(), Predicting=double())
 ```
 
 ### Data Set
 
-The data is a product ratings set for beauty products sold on Amazon.com. It was downloaded from Kaggle.com (https://www.kaggle.com/skillsmuggler/amazon-ratings). Original set contains 2,023,070 observations and 4 variables - User ID, Product ID, Rating (from 1 to 5), and Time Stamp. It covers 1,210,271 users and 249,274 products. In order to make the set more manageable it has been reduced to a smaller subset. The final set used in this project includes products with over 30 reviews in the original set and users that rated over 10 products. The final ratings matrix contains 3,562 users and 9,647 prooducts. There are 68,565 ratings. R code used to examine and reduce the original set is available at GitHub (https://github.com/ilyakats/CUNY-DATA643/tree/master/Project%204).
+The data set is the same as used in my project 4 - a product ratings set for beauty products sold on Amazon.com. It was downloaded from Kaggle.com (https://www.kaggle.com/skillsmuggler/amazon-ratings). Original set contained 2,023,070 observations and 4 variables - User ID, Product ID, Rating (from 1 to 5), and Time Stamp. It was reduced to make it more manageable to 3,562 users, 9,647 products, and 68,565 ratings. This is still a large enough set that various processes may take from a few seconds to a few minutes making it possible to roughly compare performance.
 
 ```{r}
 # Data import
 ratings <- read.csv(paste0("https://raw.githubusercontent.com/ilyakats/CUNY-DATA643/",
                            "master/Project%204/ratings_Short.csv"))
+```
 
+### ALS Model Using _recommenderlab_ Package
+
+So I have something to compare Spark code to, I built a simple ALS model using the `recommenderlab` package. Although I have not previously built ALS models, the R code is very similar to previous projects. ALS appears to be one of the simplier recommender processes to be set up using Spark.
+
+```{r}
+# Data prep
 ratingsMatrix <- sparseMatrix(as.integer(ratings$UserId), as.integer(ratings$ProductId), x = ratings$Rating)
 colnames(ratingsMatrix) <- levels(ratings$ProductId)
 rownames(ratingsMatrix) <- levels(ratings$UserId)
 amazon <- as(ratingsMatrix, "realRatingMatrix")
-```
 
-Each user has rated at least 11 items and at most 187 (median is 15 and average is 19.25). Each item has been rated by at least 1 user and at most by 177 users (median is 3 and average is 7.1).
-
-In order to test any models, we need to split our data into training and testing sets (based on a common 80-20 split).
-
-```{r}
 # Train/test split
 set.seed(88)
 eval <- evaluationScheme(amazon, method = "split", train = 0.8, given = 5, goodRating = 3)
@@ -51,164 +56,96 @@ train <- getData(eval, "train")
 known <- getData(eval, "known")
 unknown <- getData(eval, "unknown")
 
-# Set up data frame for timing
-timing <- data.frame(Model=factor(), Training=double(), Predicting=double())
+# Training
+tic()
+modelALS <- Recommender(train, method = "ALS")
+train_time <- toc(quiet = TRUE)
+
+# Predicting
+tic()
+predALS <- predict(modelALS, newdata = known, type = "ratings")
+predict_time <- toc(quiet = TRUE)
+
+timing <- rbind(timing, data.frame(Method = "recommenderlab", 
+                                   Training = round(train_time$toc - train_time$tic, 2), 
+                                   Predicting = round(predict_time$toc - predict_time$tic, 2)))
+
+# Accuracy
+accALS <- calcPredictionAccuracy(predALS, unknown)
 ```
 
-### Recommender Models 
+### ALS Model Using Spark
 
-We are going to build and compare several models. 
-
-#### Building Models
-
-The code below builds several models - User Based Collaborative Filtering (UBCF) model, Random model, and SVD model. It also generates several parameters we will use to compare the models.
+Similar modeling can be done with Spark. The general process is very simple - set up Spark local instance, copy relevant data frames into Spark, perform modeling and run predictions, compare results. As in previous projects, data is split into training and testing sets (80/20 split) and results are evaluated mostly using RMSE. 
 
 ```{r}
-# ---------------- USER BASED COLLABORATIVE FILTERING ----------------
-model_method <- "UBCF"
+# Connection
+sc <- spark_connect(master = "local")
 
-# Training
+# Prepare data
+spark_df <- ratings
+spark_df$UserId <- as.integer(spark_df$UserId)
+spark_df$ProductId <- as.integer(spark_df$ProductId)
+
+# Split for training and testing
+which_train <- sample(x = c(TRUE, FALSE), size = nrow(spark_df),
+                      replace = TRUE, prob = c(0.8, 0.2))
+train_df <- spark_df[which_train, ]
+test_df <- spark_df[!which_train, ]
+
+# Move to Spark
+spark_train <- sdf_copy_to(sc, train_df, "train_ratings", overwrite = TRUE)
+spark_test <- sdf_copy_to(sc, test_df, "test_ratings", overwrite = TRUE)
+
+# Build model
 tic()
-modelUBCF <- Recommender(train, method = model_method)
-t <- toc(quiet = TRUE)
-train_time <- round(t$toc - t$tic, 2)
+sparkALS <- ml_als(spark_train, max_iter = 5, nonnegative = TRUE, 
+                   rating_col = "Rating", user_col = "UserId", item_col = "ProductId")
+train_time <- toc(quiet = TRUE)
 
-# Predicting
+# Run prediction
 tic()
-predUBCF <- predict(modelUBCF, newdata = known, type = "ratings")
-t <- toc(quiet = TRUE)
-predict_time <- round(t$toc - t$tic, 2)
+sparkPred <- sparkALS$.jobj %>%
+  invoke("transform", spark_dataframe(spark_test)) %>%
+  collect()
+predict_time <- toc(quiet = TRUE)
 
-timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
-                                   Training = as.double(train_time), 
-                                   Predicting = as.double(predict_time))) 
+timing <- rbind(timing, data.frame(Method = "Spark", 
+                                   Training = round(train_time$toc - train_time$tic, 2), 
+                                   Predicting = round(predict_time$toc - predict_time$tic, 2)))
 
-# Accuracy
-accUBCF <- calcPredictionAccuracy(predUBCF, unknown)
-#resultsUBCF <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
+sparkPred <- sparkPred[!is.na(sparkPred$prediction), ] # Remove NaN due to data set splitting
 
-# ---------------- RANDOM ----------------
-model_method <- "RANDOM"
+# Calculate error
+mseSpark <- mean((sparkPred$Rating - sparkPred$prediction)^2)
+rmseSpark <- sqrt(mseSpark)
+maeSpark <- mean(abs(sparkPred$Rating - sparkPred$prediction))
 
-# Training
-tic()
-modelRandom <- Recommender(train, method = model_method)
-t <- toc(quiet = TRUE)
-train_time <- round(t$toc - t$tic, 2)
-
-# Predicting
-tic()
-predRandom <- predict(modelRandom, newdata = known, type = "ratings")
-t <- toc(quiet = TRUE)
-predict_time <- round(t$toc - t$tic, 2)
-
-timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
-                                   Training = as.double(train_time), 
-                                   Predicting = as.double(predict_time))) 
-
-# Accuracy
-accRandom <- calcPredictionAccuracy(predRandom, unknown)
-#resultsRandom <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
-
-# ---------------- SVD ----------------
-model_method <- "SVD"
-
-# Training
-tic()
-modelSVD <- Recommender(train, method = model_method, parameter = list(k = 50))
-t <- toc(quiet = TRUE)
-train_time <- round(t$toc - t$tic, 2)
-
-# Predicting
-tic()
-predSVD <- predict(modelSVD, newdata = known, type = "ratings")
-t <- toc(quiet = TRUE)
-predict_time <- round(t$toc - t$tic, 2)
-
-timing <- rbind(timing, data.frame(Model = as.factor(model_method), 
-                                   Training = as.double(train_time), 
-                                   Predicting = as.double(predict_time))) 
-
-# Accuracy
-accSVD <- calcPredictionAccuracy(predSVD, unknown)
-#resultsSVD <- evaluate(x = eval, method = model_method, n = c(1, 5, 10, 30, 60))
+# Disconnect
+spark_disconnect(sc)
 ```
 
-#### Comparing Models
+### Analysis
+
+The data was split differently for recommenderlab and Spark models; however, looking at corresonding RMSE values we can get the general idea about the accuracy of two models. The values are very similar which is to be expended if the same method (ALS) is used on the same data. The minor difference is just due to different observartions used for training and different implementation. 
 
 ```{r}
-accuracy <- rbind(accUBCF, accRandom)
-accuracy <- rbind(accuracy, accSVD)
-rownames(accuracy) <- c("UBCF", "Random", "SVD")
+accuracy <- rbind(accALS, data.frame(RMSE = rmseSpark, MSE = mseSpark, MAE = maeSpark))
+rownames(accuracy) <- c("recommenderlab ALS", "Spark ALS")
 knitr::kable(accuracy, format = "html") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-Reviewing the accuracy numbers for 3 models we see that UBCF and SVD models are very close together. UBCF model is only slightly better. The Random model is noticeably worse. It is not suprising that random recommendations are not as accurate as recommendations based on prior ratings. 
-
-Next we can review ROC curve and the Precision-Recall plot for all 3 models. Again UBCF performs better than SVD and considerably better than the Random model.  
-
-```{r message = FALSE, results = "hide"}
-models <- list(
-  "UBCF" = list(name = "UBCF", param = NULL),
-  "Random" = list(name = "RANDOM", param = NULL),
-  "SVD" = list(name = "SVD", param = list(k = 50))
-  )
-evalResults <- evaluate(x = eval, method = models, n = c(1, 5, 10, 30, 60))
-```
+The bigger difference is in performance. With `recommerlab` package it took over 4 minutes to run the prediction on the testing set. Training is noticeably slower with Spark, but still just a few seconds. Since this evaluation was done on the local instance of Spark, it was still subject to local limitations. If work was spread out over multiple nodes, performance can be improved. This is not possible with straight `recommenderlab` implementation.
 
 ```{r}
-# ROC Curve
-plot(evalResults, 
-     annotate = TRUE, legend = "topleft", main = "ROC Curve")
-
-# Precision-Recall Plot
-plot(evalResults, "prec/rec", 
-     annotate = TRUE, legend = "topright", main = "Precision-Recall")
-```
-
-Finally, it is important to consider training and prediction time. From the table below we can see that the UBCF model can be created fairly quickly, but predicting results takes considerable time. The Random model is pretty efficient all around. The SVD model takes longer to build than to predict, but altogether it is quicker than the UBCF model. This may be a factor in some projects.
-
-```{r}
-rownames(timing) <- timing$Model
-knitr::kable(timing[, 2:3], format = "html") %>%
+knitr::kable(timing, format = "html", row.names = FALSE) %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
-### Implementing Business/User Experience Goal
+Even with running just the local instance, Spark improved overall performance. This is clearly the biggest advantage of the distributed processing. The biggest disadvantage is also fairly obvious - more complex implementation. I believe this is the main tradeoff. 
 
-It may not always be desireable to recommend products that are likely to be most highly rated by a user. Recommending somewhat unexpected products may improve user experience, expand user preferences, provide additional knowledge about a user. To account for that we build a hybrid model that combines the UBCF model and the Random model. In order to make sure that most of recommendations are still likely to be highly rated we only allow very minor influence of the Random model (0.99 vs. 0.01 weight between UBCF and Random models).
+With a simple recommender system, implementing Spark will be an overkill - not enough benefit for the effort. My first project was attempting opera recommendations. According to Operabase (http://operabase.com) there are 25,000 performances a year. Since the same production is performed multiple times the number of annual productions is just a few thousand. Fairly low number and can probably be handled by a single server (of course, number of users/ratings should also be considered). On another hand, something like Netflix, a well worn recommender system example, definitely needs very high performance. 
 
-```{r}
-modelHybrid <- HybridRecommender(
-    modelUBCF, 
-    modelRandom, 
-    weights = c(0.99, 0.01))
-predHybrid <- predict(modelHybrid, newdata = known, type = "ratings")
-( accHybrid <- calcPredictionAccuracy(predHybrid, unknown) )
-```
-
-The accuracy has gone down. It is not as bad as with purely random model, but clearly not as good as UBCF or SVD models. However, the goal here is to influence user experience rather than make the most accurate model, so we need to employ different metrics.
-
-Let us look at top 10 recommendations for the first user in the test set. 
-
-```{r}
-pUBCF <- predict(modelUBCF, newdata = known[1], type = "topNList")
-pHybrid <- predict(modelHybrid, newdata = known[1], type = "topNList")
-```
-
-```{r}
-pUBCF@items
-pHybrid@items
-```
-
-The Hybrid model includes most of the items recommended by the UBCF model, but there are new items and the order is different.
-
-### Conclusion
-
-The project covered comparing several recommender models. Similar process can be employed to compare additional models or to adjust model parameters to find the most optimal model. Additionally, a random element was introduced in order to diversify recommendations. When recommending a random element it is difficult to predict how a user will react to it and whether the recommendation has a positive impact on business goals or user experience. In order to evaluate the impact you would need access to the online environment. 
-
-One of the approaches in measuring success of diversification may be A/B testing. Users are randomly divided into two groups and each group is offered a slightly different experience. For instance, one group may get recommendations only from the UBCF model while the other group will get recommendations from the hybrid model. User experience is measure in some way. The least instrusive way is to monitor user interaction. In this example of Amazon products, a click on a recommendation suggested by the random element of the model will point to the fact that the hybrid model provides valuable recommendations. Of course, it is possible to track other metrics - products bought, time spent on product page, amount spent, etc. The basic idea is to see if the hybrid model provides meaningful improvement to the basic model. 
-
-It is important to have objective measures when building and optimizing data science models. Evaluation of a model that returns highly relevant, but redundant recommendations should reflect that the model may score poorly in user experience. One of the approaches to measure diversity is described in _Novelty and Diversity in Information Retrieval Evaluation_ (Clarke et al. 2008; https://plg.uwaterloo.ca/~gvcormac/novelty.pdf). This or similar measurement should be incorporated in projects of this type.
+Additionally, it is important to consider how often a model should be updated. If a recommender system needs to respond to changes quickly, performance again becomes key and distributed processing is worth the effort. 
 
