@@ -1,0 +1,19 @@
+Set up Spark/EC2 using instructions:
+https://spark.rstudio.com/examples/stand-alone-aws/
+
+Default user name to connect to Ubuntu server: ubuntu
+
+Master IP: 54.165.220.14
+Node 1 IP: 34.201.215.242 (R Studio Server)
+Node 2 IP: 52.207.100.16
+Node 3 IP: 54.159.28.254
+
+R Studio URL: http://34.201.215.242:8787
+R Studio User: data643
+R Studio Password: summer18
+
+Master Node's Private Host IP: 172.31.41.22
+Master Node's UI: http://54.165.220.14:8080/
+sudo spark-2.1.0-bin-hadoop2.7/sbin/start-slave.sh spark://ip-172-31-41-22.ec2.internal:7077
+
+Master URL (for connecting to Spark): spark://ip-172-31-41-22.ec2.internal:7077
