@@ -1,0 +1,66 @@
+---
+title: "Data 643 Final Presentation"
+author: "Kai Lukowiak, Jaan Bernberg, Ilya Kats"
+date: 'July 17, 2018'
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Project Overview
+
+**Goal**: To set up a distributed system and investigate recomender system processes studied in class. Less concern with the type of data (so using one of the most common data sources).
+
+**Environment**:
+
+- Data Storage: AWS S3
+- Processing Framework: Apache Spark with master node and at least 2 workers
+- Development Platform: R Studio Server
+
+## Data Set
+
+Amazon video games reviews and ratings spanning May 1996 - July 2014.
+
+|File Name                 | File Size | User Qty   | Item Qty    | Note         |
+|:-------------------------|:---------:|:----------:|:-----------:|:-------------| 
+| `ratings_Video_Games.csv`| 53 Mb     | 826,767    | 50,2100     | All reviews included; No filters |
+| `Video_Games_5.json`     | 312 Mb    |  24,303    |  10,672     | Reviews from users who have at least 5 reviews |
+| `metadata.json`          | 10.3 Gb   |  N/A       |  9,400,000  | Additional features (description, price) |
+
+## Spark Benefits
+
+- Massively parallel
+- Probably the best and most robust ALS API out there
+- Seamless integration between data querying and model building
+
+## Spark Drawbacks
+
+- Difficult to transfer data to other system
+- Mitigated by the new spark data frame structure
+- Challenging to set up & configure (less of a problem for enterprises but students have a bear of a time)
+- Lack of clear/complete examples
+  
+## Where We Are
+
+We attempted 3 approaches and faced challenges implement each - an issue or two in every setup that prevents us from cleanly running through the workflow. These are directly related to the set up problems in the previous slide.
+
+| Approach                   | Status                                               |
+|:---------------------------|:----------------------------------------------------:|
+| Local Mode                 | Used mostly to validate and develop R code. Data read from S3. ALS model built. Not enough resources for prediction. | 
+| AWS EC2 Standalone Cluster | Configuration issues. Problem reading data from S3 directly into Spark. |
+| AWS EMR YARN Cluster       | Data read from S3. Problem executing Sparklyr R code. |
+
+## Going Forward
+
+Over the next two days the main goal is to get a working distributed Spark environment on AWS platform.  If we are satisfied with this, we may implement a simple hybrid recommender system. 
+
+**Hybrid Systems**: Our primary model is ALS model for collaborative filtering. We considered using a simple linear combination of at least two user-item-rating recommender. For example, taking the average rating of an item based recommender and a user-user based recommender.
+
+## References and Questions
+
+*Data Set*. McAuley, Julian. UC San Diego. http://jmcauley.ucsd.edu/data/amazon/
+
+
+Thanks for the fun and educational class. Are there any questions?

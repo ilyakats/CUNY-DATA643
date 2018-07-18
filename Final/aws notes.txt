@@ -1,0 +1,28 @@
+Password: data643
+
+Set up Spark/EC2 using instructions:
+https://spark.rstudio.com/examples/yarn-cluster-emr/
+
+Default user name to connect to Ubuntu server: ubuntu
+
+R Studio URL: http://54.242.209.81:8787/
+R Studio User: data643
+R Studio Password: summer18
+
+Resources:
+https://spark.rstudio.com/examples/yarn-cluster-emr/
+https://medium.com/ibm-data-science-experience/read-and-write-data-to-and-from-amazon-s3-buckets-in-rstudio-1a0f29c44fa7
+https://aws.amazon.com/blogs/big-data/running-sparklyr-rstudios-r-interface-to-spark-on-amazon-emr/
+
+Notes:
+- `copy_to` is designed for small data frames and is not meant to copy large data frame from local environment to Spark. Copying data between Spark and local environment is slow. 
+
+RMSE: 1.8986
+
+Process                              Time
+Establish Spark Connection          22.48
+Read Data from S3 to Spark           7.08
+Data Conversion: String to Integer  10.19
+Building ALS Model                 164.30
+Predict Ratings Using ALS Model      0.17
+Read Results into Data Frame       630.93

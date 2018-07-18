@@ -11,8 +11,8 @@ install.packages("aws.s3")
 
 library(aws.s3)
 
-Sys.setenv("AWS_ACCESS_KEY_ID" = "AKIAJUGWG3SNEZGRRDTA",
-           "AWS_SECRET_ACCESS_KEY" = "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",
+Sys.setenv("AWS_ACCESS_KEY_ID" = "--access key--",
+           "AWS_SECRET_ACCESS_KEY" = "--secret key--",
            "AWS_DEFAULT_REGION" = "us-east-1")
 
 # List S3 buckets
@@ -49,8 +49,8 @@ config <- spark_config()
 config$spark.executor.memory <- "2GB"
 config$spark.memory.fraction <- 0.9
 #config$`spark.hadoop.fs.s3a.impl` <- "org.apache.hadoop.fs.s3a.S3AFileSystem"
-#config$`fs.s3a.access.key` <- "AKIAJUGWG3SNEZGRRDTA"
-#config$`fs.s3a.secret.key` <- "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"
+#config$`fs.s3a.access.key` <- "--access key--"
+#config$`fs.s3a.secret.key` <- "--secret key--"
 sc <- spark_connect(master = "local", config = config)
 t <- toc(quiet = TRUE)
 timing <- rbind(timing, data.frame(Process = "Establish Spark Connection", Time = round(t$toc - t$tic, 2)))
@@ -74,8 +74,8 @@ timing <- rbind(timing, data.frame(Process = "Establish Spark Connection", Time 
 ctx <- spark_context(sc)
 jsc <- invoke_static(sc, "org.apache.spark.api.java.JavaSparkContext", "fromSparkContext", ctx)
 hconf <- jsc %>% invoke("hadoopConfiguration")
-hconf %>% invoke("set","fs.s3a.access.key", "AKIAJUGWG3SNEZGRRDTA")
-hconf %>% invoke("set","fs.s3a.secret.key", "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")
+hconf %>% invoke("set","fs.s3a.access.key", "--access key--")
+hconf %>% invoke("set","fs.s3a.secret.key", "--secret key--")
 games <- spark_read_csv(sc, name = "games_df", 
                         path = "s3a://data643summer18/ratings_Video_Games.csv")
 
