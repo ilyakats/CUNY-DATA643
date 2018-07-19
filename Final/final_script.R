@@ -28,8 +28,8 @@ timing <- rbind(timing, data.frame(Process = step, Time = round(t$toc - t$tic, 2
 ctx <- spark_context(sc)
 jsc <- invoke_static(sc, "org.apache.spark.api.java.JavaSparkContext", "fromSparkContext", ctx)
 hconf <- jsc %>% invoke("hadoopConfiguration")
-hconf %>% invoke("set","fs.s3a.access.key", "AKIAIIYT6UBO6W33Z5MA")
-hconf %>% invoke("set","fs.s3a.secret.key", "xJiQnnrnPyaErmZvv1F9T6fx3MwsZkyBgLbfaLse")
+hconf %>% invoke("set","fs.s3a.access.key", "[REPLACE WITH ACCESS KEY]")
+hconf %>% invoke("set","fs.s3a.secret.key", "[REPLACE WITH SECRET KEY]")
 
 tic()
 step <- "Read Data from S3 to Spark"

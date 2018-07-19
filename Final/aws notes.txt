@@ -1,5 +1,3 @@
-Password: data643
-
 Set up Spark/EC2 using instructions:
 https://spark.rstudio.com/examples/yarn-cluster-emr/
 
