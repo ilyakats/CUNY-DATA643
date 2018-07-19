@@ -16,6 +16,10 @@ Sys.setenv(SPARK_HOME="/usr/lib/spark")
 tic()
 step <- "Establish Spark Connection"
 config <- spark_config()
+#config$spark.executor.memory <- "8G"
+#config$spark.executor.cores <- 2
+#config$spark.executor.instances <- 3
+#config$spark.dynamicAllocation.enabled <- "false"
 sc <- spark_connect(master = "yarn-client", config = config, version = '2.1.0')
 t <- toc(quiet = TRUE)
 timing <- rbind(timing, data.frame(Process = step, Time = round(t$toc - t$tic, 2)))
@@ -24,8 +28,8 @@ timing <- rbind(timing, data.frame(Process = step, Time = round(t$toc - t$tic, 2
 ctx <- spark_context(sc)
 jsc <- invoke_static(sc, "org.apache.spark.api.java.JavaSparkContext", "fromSparkContext", ctx)
 hconf <- jsc %>% invoke("hadoopConfiguration")
-hconf %>% invoke("set","fs.s3a.access.key", "--access key--")
-hconf %>% invoke("set","fs.s3a.secret.key", "--secret key--")
+hconf %>% invoke("set","fs.s3a.access.key", "AKIAIIYT6UBO6W33Z5MA")
+hconf %>% invoke("set","fs.s3a.secret.key", "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")
 
 tic()
 step <- "Read Data from S3 to Spark"
